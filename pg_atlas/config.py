@@ -8,6 +8,8 @@ SPDX-FileCopyrightText: 2026 PG Atlas contributors
 SPDX-License-Identifier: MPL-2.0
 """
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,11 +20,17 @@ class Settings(BaseSettings):
     Required environment variables:
         PG_ATLAS_API_URL: The canonical URL of this API instance. Used as the
             OIDC audience when verifying GitHub OIDC tokens from the SBOM action.
-            Must exactly match the `audience` value the action was configured with.
+            Must exactly match the ``audience`` value the action was configured with.
 
-    Optional environment variables:
+    Optional environment variables (required for the database write path, A2+):
         PG_ATLAS_DATABASE_URL: Async SQLAlchemy database URL
-            (e.g. postgresql+asyncpg://user:pass@host/db). Not required until A2.
+            (``postgresql+asyncpg://user:pass@host/db``). An empty string disables
+            the database session factory; the server will start but any endpoint that
+            calls ``get_db_session()`` will raise at runtime.
+        PG_ATLAS_ARTIFACT_STORE_PATH: Filesystem path where raw SBOM bytes are written
+            (local dev). Defaults to ``./artifact_store`` (relative to the working
+            directory). In production, set this to the container-local mount point of
+            the Storacha-backed volume.
         PG_ATLAS_LOG_LEVEL: Python log level string (DEBUG, INFO, WARNING, ERROR).
             Defaults to INFO.
         PG_ATLAS_JWKS_CACHE_TTL_SECONDS: How long to cache GitHub's JWKS response
@@ -37,6 +45,7 @@ class Settings(BaseSettings):
 
     API_URL: str
     DATABASE_URL: str = ""
+    ARTIFACT_STORE_PATH: Path = Path("./artifact_store")
     LOG_LEVEL: str = "INFO"
     JWKS_CACHE_TTL_SECONDS: int = 3600
 
