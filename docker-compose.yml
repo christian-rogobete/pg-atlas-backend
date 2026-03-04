@@ -15,7 +15,7 @@ services:
       # the server places its data in a major-version sub-directory automatically.
       - pg_data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pg_atlas -d pg_atlas"]
+      test: ["CMD-SHELL", "pg_isready -U atlas -d pg_atlas"]
       interval: 5s
       timeout: 5s
       retries: 10
