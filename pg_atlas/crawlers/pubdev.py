@@ -27,9 +27,10 @@ class PubDevCrawler(RegistryCrawler):
     """
     Crawler for pub.dev (Dart/Flutter package registry).
 
-    ``adoption_downloads`` is left as None because pub.dev does not expose an
-    all-time total — only weekly history.  Download counts are stored in
-    metadata (``download_count_30d``, ``download_count_4w``, ``12w``, ``52w``).
+    ``adoption_downloads`` is set to the 30-day download count from the
+    score endpoint, matching the spec definition (last 30 days).  Additional
+    download breakdowns are stored in metadata (``download_count_4w``,
+    ``download_count_12w``, ``download_count_52w``).
     """
 
     REGISTRY = "pub.dev"
@@ -158,7 +159,7 @@ class PubDevCrawler(RegistryCrawler):
             display_name=name,
             latest_version=version,
             repo_url=repo_url,
-            downloads=None,
+            downloads=downloads_30d,
             stars=None,
             metadata=metadata,
             dependencies=dependencies,

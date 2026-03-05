@@ -99,12 +99,12 @@ async def test_fetch_package_parses_stats(
     packagist_package_data: dict[str, Any],
     packagist_downloads_data: dict[str, Any],
 ) -> None:
-    """Downloads, daily, and total are extracted; stars reserved for GitHub."""
+    """Downloads (last 30 days), daily, and total are extracted; stars reserved for GitHub."""
     mock_http_client.get = AsyncMock(side_effect=[_response(packagist_package_data), _response(packagist_downloads_data)])
     crawler = _make_crawler(mock_http_client)
     pkg = await crawler.fetch_package("soneso/stellar-php-sdk")
 
-    assert pkg.downloads == 46925  # total
+    assert pkg.downloads == 1970  # monthly (last 30 days per spec)
     assert pkg.stars is None  # reserved for GitHub
     assert pkg.metadata["downloads_total"] == 46925
     assert pkg.metadata["download_count_30d"] == 1970

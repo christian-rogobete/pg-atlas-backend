@@ -42,26 +42,27 @@ async def main() -> None:
     from pg_atlas.crawlers.pubdev import PubDevCrawler
 
     engine = create_async_engine(settings.DATABASE_URL, pool_pre_ping=True)
-    session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
-        engine,
-        expire_on_commit=False,
-    )
-
-    async with httpx.AsyncClient(
-        timeout=httpx.Timeout(settings.CRAWLER_TIMEOUT, connect=10.0),
-        follow_redirects=True,
-        headers={"User-Agent": "pg-atlas-crawler/0.1"},
-    ) as client:
-        crawler_cls = PubDevCrawler if args.registry == "pubdev" else PackagistCrawler
-        crawler = crawler_cls(
-            client=client,
-            session_factory=session_factory,
-            rate_limit=settings.CRAWLER_RATE_LIMIT,
-            max_retries=settings.CRAWLER_MAX_RETRIES,
+    try:
+        session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
+            engine,
+            expire_on_commit=False,
         )
-        result = await crawler.crawl_and_persist(args.packages)
 
-    await engine.dispose()
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(settings.CRAWLER_TIMEOUT, connect=10.0),
+            follow_redirects=True,
+            headers={"User-Agent": "pg-atlas-crawler/0.1"},
+        ) as client:
+            crawler_cls = PubDevCrawler if args.registry == "pubdev" else PackagistCrawler
+            crawler = crawler_cls(
+                client=client,
+                session_factory=session_factory,
+                rate_limit=settings.CRAWLER_RATE_LIMIT,
+                max_retries=settings.CRAWLER_MAX_RETRIES,
+            )
+            result = await crawler.crawl_and_persist(args.packages)
+    finally:
+        await engine.dispose()
 
     logger.info(
         "Crawl complete: %d packages, %d vertices, %d edges, %d skipped, %d errors",

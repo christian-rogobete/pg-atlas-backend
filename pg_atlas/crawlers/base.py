@@ -157,18 +157,18 @@ async def _upsert_edge(
     edge = existing.scalar_one_or_none()
 
     if edge is None:
-        session.add(
-            DependsOn(
-                in_vertex_id=in_vertex_id,
-                out_vertex_id=out_vertex_id,
-                version_range=version_range or None,
-                confidence=EdgeConfidence.inferred_shadow,
-            )
+        new_edge = DependsOn(
+            in_vertex_id=in_vertex_id,
+            out_vertex_id=out_vertex_id,
+            version_range=version_range or None,
+            confidence=EdgeConfidence.inferred_shadow,
         )
+        session.add(new_edge)
         try:
             async with session.begin_nested():
                 await session.flush()
         except IntegrityError as exc:
+            session.expunge(new_edge)
             logger.debug("Edge %d->%d already exists: %s", in_vertex_id, out_vertex_id, exc)
             return None
         return True
