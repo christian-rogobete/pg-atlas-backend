@@ -11,3 +11,4 @@ dist/
 build/
 htmlcov/
 .coverage
+artifact_store/

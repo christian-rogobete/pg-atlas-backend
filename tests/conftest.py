@@ -87,3 +87,45 @@ async def authenticated_client(
         base_url="http://test",
     ) as client:
         yield client
+
+
+# ---------------------------------------------------------------------------
+# Database fixtures (skipped when PG_ATLAS_DATABASE_URL is not configured)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def db_session() -> AsyncGenerator[Any, None]:
+    """
+    Real ``AsyncSession`` against the configured PostgreSQL database.
+
+    Skipped automatically when ``PG_ATLAS_DATABASE_URL`` is not set (e.g. in CI
+    without a database service).  Set the variable before running to enable
+    database integration tests::
+
+        PG_ATLAS_DATABASE_URL=postgresql+asyncpg://atlas:changeme@localhost:5432/pg_atlas \\
+            uv run pytest -v tests/test_db_models.py
+
+    Each test gets a **fresh** engine (with ``NullPool``) so that asyncpg
+    connections are never shared across event loops.  pytest-asyncio creates a
+    new event loop per test function by default; a pooled engine would attempt
+    to reuse connections from a previous loop and raise
+    ``RuntimeError: Future attached to a different loop``.
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from pg_atlas.config import settings as app_settings
+
+    if not app_settings.DATABASE_URL:
+        pytest.skip("PG_ATLAS_DATABASE_URL not set; skipping database integration test")
+
+    engine = create_async_engine(app_settings.DATABASE_URL, poolclass=NullPool)
+    try:
+        async_session: async_sessionmaker[AsyncSession] = async_sessionmaker(
+            engine, class_=AsyncSession, expire_on_commit=False
+        )
+        async with async_session() as session:
+            yield session
+    finally:
+        await engine.dispose()
