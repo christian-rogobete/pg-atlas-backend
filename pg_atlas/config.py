@@ -101,6 +101,38 @@ class Settings(BaseSettings):
     GITHUB_DEPENDENTS_ENTRY_CAP: int = Field(default=500, gt=0)
     GITHUB_DEPENDENTS_PACKAGES_CAP: int = Field(default=25, gt=0)
 
+    # --- Maintenance metric ---
+    # Scheduling fails closed exactly like the dependents crawler: ENABLED=false
+    # schedules nothing; ENABLED=true schedules only repositories on the
+    # allowlist (comma-separated owner/repo, case-insensitive); the explicit
+    # value "*" schedules all eligible repos. Unlike the dependents crawler,
+    # the collector task ALSO re-checks both settings at execution time, so
+    # disabling stops already-queued work; gated materialization re-checks the
+    # enable flag. Explicit CLI runs bypass the gate. The parameter defaults
+    # below are open proposal decisions and deliberately isolated here.
+    MAINTENANCE_METRIC_ENABLED: bool = False
+    MAINTENANCE_METRIC_ALLOWLIST: str = ""
+    #: Repos whose issue tracking is declared to live outside GitHub
+    #: (comma-separated owner/repo). Issue signals become not-applicable.
+    MAINTENANCE_EXTERNAL_TRACKER_REPOS: str = ""
+    MAINTENANCE_WINDOW_DAYS: int = Field(default=180, gt=0)
+    MAINTENANCE_RESPONSE_INTERVAL_DAYS: int = Field(default=7, gt=0)
+    MAINTENANCE_CADENCE_LAST_N_EVENTS: int = Field(default=10, gt=1)
+    MAINTENANCE_CADENCE_MIN_EVENTS: int = Field(default=3, gt=1)
+    MAINTENANCE_INCLUDE_PRERELEASES: bool = True
+    MAINTENANCE_INCLUDE_DRAFT_PRS: bool = True
+    #: Per-repo caps for the GitHub collection: listing pages per item type,
+    #: total API requests, and wall-clock seconds. A capped repo is recorded
+    #: incomplete for the affected signals, never silently mixed into results.
+    MAINTENANCE_ITEM_PAGE_CAP: int = Field(default=10, gt=0)
+    MAINTENANCE_REQUEST_CAP: int = Field(default=120, gt=0)
+    MAINTENANCE_TIME_CAP_SECONDS: float = Field(default=180.0, gt=0)
+    MAINTENANCE_RATE_LIMIT_MAX_WAIT_SECONDS: float = Field(default=120.0, ge=0)
+    #: Freshness bounds: collected issue/PR signals and git-log artifacts older
+    #: than these are context only, never percentile-ranked.
+    MAINTENANCE_SIGNALS_MAX_AGE_DAYS: int = Field(default=14, gt=0)
+    MAINTENANCE_GITLOG_MAX_AGE_DAYS: int = Field(default=21, gt=0)
+
     # --- Git log parser settings ---
     GITLOG_SINCE_MONTHS: int = 24
     GITLOG_CLONE_DIR: str = "/tmp/pg-atlas-clones"

@@ -12,7 +12,8 @@ Task hierarchy (queue names in brackets)::
            └─ crawl_github_repo  [opengrants]
                  ├─ crawl_package_deps  [package-deps]
                  ├─ crawl_package_registry  [registry-crawl]
-                 └─ crawl_github_dependents  [registry-crawl]
+                 ├─ crawl_github_dependents  [registry-crawl]
+                 └─ collect_maintenance_signals  [opengrants]
 
 The bootstrap workers run ``package-deps`` and ``registry-crawl`` after
 ``opengrants`` has drained so that all ``Repo`` vertices and ``Project``
@@ -63,6 +64,10 @@ from pg_atlas.procrastinate.github import (
     fetch_repo_list,
     latest_version_from_repo,
     list_org_repos,
+)
+from pg_atlas.procrastinate.github_maintenance import (
+    maintenance_metric_allowed,
+    run_maintenance_collection,
 )
 from pg_atlas.procrastinate.opengrants import ScfProject, fetch_scf_projects
 from pg_atlas.procrastinate.upserts import (
@@ -533,6 +538,15 @@ async def crawl_github_repo(
             repo=repo,
         )
 
+    # ----- Defer maintenance-signal collection if this repo is allowlisted -----
+    if defer_maintenance := maintenance_metric_allowed(owner, repo):
+        await defer_with_lock(
+            collect_maintenance_signals,
+            queueing_lock=f"maintenance:{owner}/{repo}",
+            owner=owner,
+            repo=repo,
+        )
+
     summary_line = (
         f"crawl_github_repo: {owner}/{repo} - {len(package_refs)} packages, "
         f"deferred {len(depsdev_packages)} crawl_package_deps tasks, "
@@ -540,6 +554,8 @@ async def crawl_github_repo(
     )
     if defer_github_dependents:
         summary_line += ", deferred crawl_github_dependents task"
+    if defer_maintenance:
+        summary_line += ", deferred collect_maintenance_signals task"
 
     logger.info(summary_line)
 
@@ -650,6 +666,40 @@ async def crawl_github_dependents(
     logger.info(f"crawl_github_dependents: {package_name} processed={result.packages_processed} errors={len(result.errors)}")
     if result.packages_processed == 0:
         raise AllPackagesFailed([package_name])
+
+
+# ---------------------------------------------------------------------------
+# Task: collect_maintenance_signals
+# ---------------------------------------------------------------------------
+
+
+@app.task(queue="opengrants")
+async def collect_maintenance_signals(
+    owner: str,
+    repo: str,
+) -> None:
+    """
+    Collect GitHub maintenance signals for one tracked repository.
+
+    Persists issue/PR responsiveness cohorts, backlog snapshots, tracker
+    applicability, ``pushed_at``, and the release-date fallback under
+    ``Repo.repo_metadata["maintenance_signals"]``. Collection/audit only: no
+    edges, no vertices, no metric change — ranking happens later in
+    ``materialize_maintenance``. Runs on the ``opengrants`` queue because it
+    needs the authenticated ``GITHUB_TOKEN`` that queue's worker carries.
+
+    Re-checks the fail-closed gate at execution time, so disabling the flag
+    or shrinking the allowlist stops already-queued work.
+    """
+
+    if not maintenance_metric_allowed(owner, repo):
+        logger.info(f"collect_maintenance_signals: gate disallows {owner}/{repo} at execution time, skipping")
+
+        return
+
+    # The per-repo summary line (requests, signal states) is logged by
+    # run_maintenance_collection, shared with the CLI path.
+    await run_maintenance_collection(owner, repo)
 
 
 # ---------------------------------------------------------------------------

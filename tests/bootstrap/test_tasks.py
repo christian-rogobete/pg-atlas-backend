@@ -31,6 +31,7 @@ try:
         PackageReference,
         _load_project_overrides,
         _purl_type_for_system,
+        collect_maintenance_signals,
         crawl_github_repo,
         crawl_package_deps,
         crawl_package_registry,
@@ -787,3 +788,50 @@ class TestDeferredPayloadJsonSerializable:
             data = self._assert_json_round_trips(payload)
             assert isinstance(data["expected_status"], str)
             assert data["expected_status"] == status.value
+
+
+# ---------------------------------------------------------------------------
+# collect_maintenance_signals — execution-time gate re-check
+# ---------------------------------------------------------------------------
+
+
+async def test_collect_maintenance_signals_gate_recheck_skips_queued_work(
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: Any,
+) -> None:
+    """Disabling the flag stops already-queued collection at execution time."""
+
+    from pg_atlas.config import settings
+
+    monkeypatch.setattr(settings, "MAINTENANCE_METRIC_ENABLED", False)
+    monkeypatch.setattr(settings, "MAINTENANCE_METRIC_ALLOWLIST", "*")
+    run_mock = mocker.patch("pg_atlas.procrastinate.tasks.run_maintenance_collection", new=mocker.AsyncMock())
+
+    await collect_maintenance_signals(owner="Soneso", repo="stellar-php-sdk")
+
+    run_mock.assert_not_awaited()
+
+
+async def test_collect_maintenance_signals_runs_when_allowlisted(
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: Any,
+) -> None:
+    from pg_atlas.config import settings
+    from pg_atlas.procrastinate.github_maintenance import MaintenanceCollectionOutcome
+
+    monkeypatch.setattr(settings, "MAINTENANCE_METRIC_ENABLED", True)
+    monkeypatch.setattr(settings, "MAINTENANCE_METRIC_ALLOWLIST", "soneso/stellar-php-sdk")
+    outcome = MaintenanceCollectionOutcome(
+        owner="Soneso",
+        repo="stellar-php-sdk",
+        requests_used=5,
+        signal_states={"issue_backlog": "ok"},
+    )
+    run_mock = mocker.patch(
+        "pg_atlas.procrastinate.tasks.run_maintenance_collection",
+        new=mocker.AsyncMock(return_value=outcome),
+    )
+
+    await collect_maintenance_signals(owner="Soneso", repo="stellar-php-sdk")
+
+    run_mock.assert_awaited_once_with("Soneso", "stellar-php-sdk")

@@ -260,6 +260,18 @@ async def parse_git_log(repo_path: Path, since_months: int) -> list[CommitRecord
     return _parse_log_output(stdout.decode(errors="replace"))
 
 
+def parse_log_bytes(raw: bytes) -> list[CommitRecord]:
+    """
+    Parse stored raw git log bytes into commit records.
+
+    Public entry point for consumers of persisted git-log artifacts (e.g. the
+    maintenance metric's windowed commit count), so artifact re-parsing shares
+    the exact semantics of the live pipeline.
+    """
+
+    return _parse_log_output(raw.decode(errors="replace"))
+
+
 def _parse_log_output(raw: str) -> list[CommitRecord]:
     """Parse null-delimited git log output into CommitRecord objects."""
     records: list[CommitRecord] = []
