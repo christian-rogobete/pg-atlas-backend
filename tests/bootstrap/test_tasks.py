@@ -31,6 +31,7 @@ try:
         PackageReference,
         _load_project_overrides,
         _purl_type_for_system,
+        collect_maintenance_signals,
         crawl_github_repo,
         crawl_package_deps,
         crawl_package_registry,
@@ -787,3 +788,94 @@ class TestDeferredPayloadJsonSerializable:
             data = self._assert_json_round_trips(payload)
             assert isinstance(data["expected_status"], str)
             assert data["expected_status"] == status.value
+
+
+# ---------------------------------------------------------------------------
+# collect_maintenance_signals — execution-time gate re-check
+# ---------------------------------------------------------------------------
+
+
+async def test_collect_maintenance_signals_gate_recheck_skips_queued_work(
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: Any,
+) -> None:
+    """Disabling the flag stops already-queued collection at execution time."""
+
+    from pg_atlas.config import settings
+
+    monkeypatch.setattr(settings, "MAINTENANCE_METRIC_ENABLED", False)
+    monkeypatch.setattr(settings, "MAINTENANCE_METRIC_ALLOWLIST", "*")
+    run_mock = mocker.patch("pg_atlas.procrastinate.tasks.run_maintenance_collection", new=mocker.AsyncMock())
+
+    await collect_maintenance_signals(owner="Soneso", repo="stellar-php-sdk")
+
+    run_mock.assert_not_awaited()
+
+
+async def test_collect_maintenance_signals_runs_when_allowlisted(
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: Any,
+) -> None:
+    from pg_atlas.config import settings
+
+    monkeypatch.setattr(settings, "MAINTENANCE_METRIC_ENABLED", True)
+    monkeypatch.setattr(settings, "MAINTENANCE_METRIC_ALLOWLIST", "soneso/stellar-php-sdk")
+    run_mock = mocker.patch("pg_atlas.procrastinate.tasks.run_maintenance_collection", new=mocker.AsyncMock())
+
+    await collect_maintenance_signals(owner="Soneso", repo="stellar-php-sdk")
+
+    run_mock.assert_awaited_once_with("Soneso", "stellar-php-sdk")
+
+
+async def test_crawl_github_repo_defers_maintenance_when_allowlisted(
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: Any,
+) -> None:
+    """The scheduling half of the maintenance gate defers the collector task."""
+
+    from pg_atlas.config import settings
+    from pg_atlas.procrastinate.tasks import collect_maintenance_signals as maintenance_task
+
+    monkeypatch.setattr(settings, "MAINTENANCE_METRIC_ENABLED", True)
+    monkeypatch.setattr(settings, "MAINTENANCE_METRIC_ALLOWLIST", "stellarcn/py-stellar-base")
+    mocker.patch(
+        "pg_atlas.procrastinate.tasks.get_package",
+        new=mocker.AsyncMock(return_value=_depsdev_package_info("11.1.0", versions=[])),
+    )
+    mocker.patch("pg_atlas.procrastinate.tasks.latest_version_from_repo", return_value="11.1.0")
+    mocker.patch("pg_atlas.procrastinate.tasks.upsert_repo", new=mocker.AsyncMock(return_value=10))
+    mocker.patch("pg_atlas.procrastinate.tasks.absorb_external_repo", new=mocker.AsyncMock(return_value=False))
+    mocker.patch("pg_atlas.procrastinate.tasks.associate_repo_with_project", new=mocker.AsyncMock())
+    defer_mock = mocker.patch("pg_atlas.procrastinate.tasks.defer_with_lock", new=mocker.AsyncMock(return_value=True))
+
+    await crawl_github_repo(
+        owner="StellarCN",
+        repo="py-stellar-base",
+        project_id=1,
+        packages=[{"system": "PYPI", "name": "stellar-sdk", "purl": "pkg:pypi/stellar-sdk"}],
+        adoption_stars=123,
+        adoption_forks=44,
+    )
+
+    maintenance_calls = [call for call in defer_mock.call_args_list if call.args[0] is maintenance_task]
+    assert len(maintenance_calls) == 1
+    assert maintenance_calls[0].kwargs["queueing_lock"] == "maintenance:StellarCN/py-stellar-base"
+    assert maintenance_calls[0].kwargs["owner"] == "StellarCN"
+    assert maintenance_calls[0].kwargs["repo"] == "py-stellar-base"
+
+
+async def test_collect_maintenance_signals_skips_repo_removed_from_allowlist(
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: Any,
+) -> None:
+    """Shrinking the allowlist stops already-queued work at execution time."""
+
+    from pg_atlas.config import settings
+
+    monkeypatch.setattr(settings, "MAINTENANCE_METRIC_ENABLED", True)
+    monkeypatch.setattr(settings, "MAINTENANCE_METRIC_ALLOWLIST", "soneso/stellar-ios-mac-sdk")
+    run_mock = mocker.patch("pg_atlas.procrastinate.tasks.run_maintenance_collection", new=mocker.AsyncMock())
+
+    await collect_maintenance_signals(owner="Soneso", repo="stellar-php-sdk")
+
+    run_mock.assert_not_awaited()
