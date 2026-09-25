@@ -85,6 +85,12 @@ class Repo(RepoVertex):
 
     Metric columns (``pony_factor``, ``criticality_score``, adoption signals) are
     materialized by the background computation pipeline.
+
+    Lock ordering invariant: any transaction that bulk-updates more than one
+    ``Repo`` row MUST process those rows sorted ascending by ``id``. Two
+    overlapping transactions that both follow this order can only ever
+    contend for the same row in the same sequence, never in reverse — which
+    is what prevents an AB-BA deadlock between them.
     """
 
     __tablename__ = "repos"
@@ -112,6 +118,14 @@ class Repo(RepoVertex):
     # --- project membership (optional: we may ingest SBOMs before the project exists) ---
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), default=None)
     latest_commit_date: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    #: GitHub ``pushed_at`` exactly as fetched. Kept separate from
+    #: ``latest_commit_date``, which is a most-recent-wins merge of push time
+    #: and parsed commit dates and therefore unusable as a pure push signal.
+    pushed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    #: The time the stored ``pushed_at`` was observed; freshness of the push
+    #: signal is judged against it. Written together with ``pushed_at`` by
+    #: ``pg_atlas.procrastinate.upserts.record_pushed_at``.
+    pushed_at_observed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     repo_url: Mapped[str | None] = mapped_column(String(512), default=None, unique=True)
 
     # --- materialised metrics ---
@@ -181,6 +195,10 @@ class ExternalRepo(RepoVertex):
     Tracked for blast-radius analysis only; no project-level data is maintained.
     Created by SBOM ingestion (when a dependency cannot be mapped to a known ``Repo``)
     and registry crawls.
+
+    Lock ordering invariant: any transaction that bulk-updates more than one
+    ``ExternalRepo`` row MUST process those rows sorted ascending by ``id``,
+    for the same AB-BA deadlock-avoidance reason as ``Repo``.
     """
 
     __tablename__ = "external_repos"
