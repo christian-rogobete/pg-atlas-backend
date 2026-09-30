@@ -1,6 +1,6 @@
 [project]
 name = "pg-atlas-backend"
-version = "0.6.0"
+version = "0.7.0"
 description = "PG Atlas backend: ingestion pipeline, storage, metric computation, and REST API."
 authors = [{ name = "Alex Olieman", email = "alex@olieman.net" }]
 license = { text = "MPL-2.0" }
@@ -29,6 +29,7 @@ dependencies = [
     "pyrate-limiter>=4.1.0",
     "pypistats>=1.13.0",
     "packaging>=26.0",
+    "freezegun>=1.5.5",
 ]
 
 [dependency-groups]
@@ -61,7 +62,7 @@ conflicts = [
 ]
 
 [tool.uv.sources]
-types-aiobotocore-custom = { path = "vendored/types_aiobotocore_custom-3.3.0-py3-none-any.whl" }
+types-aiobotocore-custom = { path = "vendored/types_aiobotocore_custom-3.9.1-py3-none-any.whl" }
 
 [project.scripts]
 pg-atlas = "pg_atlas.__main__:main"
